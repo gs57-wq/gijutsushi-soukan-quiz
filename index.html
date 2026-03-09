@@ -1429,10 +1429,43 @@ function App(){
   const today=new Date();
   const seed=today.getFullYear()*10000+(today.getMonth()+1)*100+today.getDate();
   const todayQs=useMemo(()=>{
-    const seeded=(arr,s)=>{let x=s;return [...arr].sort(()=>{x=(x*1664525+1013904223)&0xFFFFFFFF;return x-0x7FFFFFFF;});};
-    return CATS.flatMap(cat=>{
-      const cqs=seeded(QUESTIONS.filter(q=>q.cat===cat),seed+CATS.indexOf(cat));
-      return cqs.slice(0,1);
+    // 線形合同法による疑似乱数生成器（状態を正しく更新するクロージャ版）
+    const makeLCG=(s)=>{
+      let state=s>>>0;
+      return ()=>{
+        state=(Math.imul(1664525,state)+1013904223)>>>0;
+        return state/0x100000000; // 0〜1の浮動小数点
+      };
+    };
+    // Fisher-Yatesシャッフル（正確なランダムシャッフル）
+    const shuffle=(arr,rng)=>{
+      const a=[...arr];
+      for(let i=a.length-1;i>0;i--){
+        const j=Math.floor(rng()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
+      }
+      return a;
+    };
+    // 直近4日間の出題済み問題IDを除外してから選ぶ
+    const recentIds=new Set();
+    for(let offset=1;offset<=4;offset++){
+      const past=new Date(today);
+      past.setDate(past.getDate()-offset);
+      const ps=past.getFullYear()*10000+(past.getMonth()+1)*100+past.getDate();
+      CATS.forEach((cat,ci)=>{
+        const rng2=makeLCG(ps^((ci+1)*999983));
+        const arr=shuffle(QUESTIONS.filter(q=>q.cat===cat),rng2);
+        if(arr[0]) recentIds.add(arr[0].id);
+      });
+    }
+    return CATS.flatMap((cat,ci)=>{
+      const rng=makeLCG(seed^((ci+1)*999983));
+      const pool=QUESTIONS.filter(q=>q.cat===cat);
+      const shuffled=shuffle(pool,rng);
+      // 直近4日で出た問題を後ろに回し、新しい問題を先に出す
+      const fresh=shuffled.filter(q=>!recentIds.has(q.id));
+      const seen=shuffled.filter(q=>recentIds.has(q.id));
+      return [...fresh,...seen].slice(0,1);
     });
   },[seed]);
 
